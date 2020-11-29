@@ -181,15 +181,171 @@ left_join(bike_name_single_category,bike_price_single_category)
 
 ```
 
-# Adding R stuff
+# Data Wrangling
+Well, pretty standard set of tasks
 
-So far this is just a blog where you can write in plain text and serve your writing to a webpage. One of the main purposes of this lab journal is to record your progress learning R. The reason I am asking you to use this process is because you can both make a website, and a lab journal, and learn R all in R-studio. This makes everything really convenient and in the same place. 
-
-So, let's say you are learning how to make a histogram in R. For example, maybe you want to sample 100 numbers from a normal distribution with mean = 0, and standard deviation = 1, and then you want to plot a histogram. You can do this right here by using an r code block, like this:
-
+## General Imports
 ```{r}
-samples <- rnorm(100, mean=0, sd=1)
-hist(samples)
+library(tidyverse)
+library(data.table)
+library(vroom)
+library(dplyr)
+
+##Patent Assignee
+col_types <- list(
+  patent_id = col_character(),
+  assignee_id = col_character(),
+  location_id = col_character()
+)
+
+patent_assignee_tbl <- vroom(
+  file       = "storage_challenge_4/patent_assignee.tsv", 
+  delim      = "\t", 
+  col_types  = col_types,
+  na         = c("", "NA", "NULL")
+)
+setDT(patent_assignee_tbl)
+###Assignee
+col_types <- list(
+  id = col_character(),
+  type = col_factor(NULL),
+  name_first= col_skip(),
+  name_last=col_skip(),
+  organization=col_character()
+)
+
+assignee_tbl <- vroom(
+  file       = "storage_challenge_4/assignee.tsv", 
+  delim      = "\t", 
+  col_types  = col_types,
+  na         = c("", "NA", "NULL")
+)
+setDT(assignee_tbl)
+###Patent
+col_types <- list(
+  id = col_character(),
+  type = col_skip(),
+  number = col_skip(),
+  country = col_skip(),#always US
+  date = col_date("%Y-%m-%d"),
+  abstract = col_skip(),
+  title = col_skip(),
+  kind = col_skip(),
+  num_claims = col_skip(),
+  filename = col_skip(),
+  withdrawn = col_double()
+)
+
+patent_tbl <- vroom(
+  file       = "storage_challenge_4/patent.tsv", 
+  delim      = "\t", 
+  col_types  = col_types,
+  na         = c("", "NA", "NULL")
+)
+setDT(patent_tbl)
+
+###USPC
+col_types <- list(
+  uuid = col_skip(),
+  patent_id = col_character(),
+  mainclass_id=col_character(),
+  subclass_id=col_skip(),
+  sequence=col_skip()
+)
+uspc_tbl <- vroom(
+  file       = "storage_challenge_4/uspc.tsv", 
+  delim      = "\t", 
+  col_types  = col_types,
+  na         = c("", "NA", "NULL")
+)
 ```
+
+## Which US organization had the most patents?
+```{r}
+# filter for type 2=>US Company
+assignee_tbl%>%
+  filter(type==2)%>%
+  filter(!(is.na(organization)))->
+  us_company_tbl
+us_company_tbl%>%
+  merge(x=.,y=patent_assignee_tbl,by.x="id",by.y="assignee_id")->
+  us_company_with_patent_id_tbl
+us_company_with_patent_id_tbl%>%
+  select(organization,patent_id)%>%
+  group_by(organization)%>%
+  summarise(numPatents=n())%>%
+  ungroup()%>%
+  arrange(desc(numPatents))%>%
+  head(n=10)
+```
+## What US company had the most patents granted in 2019?
+```{r}
+# remove patents that have been withdrawn
+patent_tbl%>%
+  filter(withdrawn!=1)%>%
+  select(-withdrawn)->
+  clean_patent_tbl
+clean_patent_tbl$year<-
+  format(clean_patent_tbl$date,"%Y")
+# filter for year 2019 and remove unnecessary columns
+clean_patent_tbl%>%
+  filter(year==2019)%>%
+  select(id)->
+  patents_issued_2019
+merge(x=patents_issued_2019,y=us_company_with_patent_id_tbl,
+      by.x="id",by.y="patent_id")%>%
+  group_by(organization)%>%
+  summarise(numberPatents=n())%>%
+  arrange(desc(numberPatents))%>%
+  head(n=10)
+```
+## What is the most innovative tech sector? 
+For the top 10 companies (worldwide) with the most patents, what are the top 5 USPTO tech main classes?
+```{r}
+# Find top 10 companies worldwide
+assignee_tbl%>%
+  filter(type==2 | type==3)%>%
+  filter(!(is.na(organization)))->
+  world_company_tbl
+world_company_tbl%>%
+  merge(x=.,y=patent_assignee_tbl,by.x="id",by.y="assignee_id")->
+  world_company_tbl_patent_id
+world_company_tbl_patent_id%>%
+  select(organization,patent_id)%>%
+  group_by(organization)%>%
+  summarise(numPatents=n())%>%
+  ungroup()%>%
+  arrange(desc(numPatents))%>%
+  head(n=10)%>%
+  select(organization)->
+  top10_companies
+assignee_tbl%>%
+  filter(organization %in% top10_companies$organization)%>%
+  left_join(patent_assignee_tbl,by=c("id"="assignee_id"))%>%
+  # apparently (some) companies have 2 asignee IDs but these are not used
+  # for to register patents, so guess
+  filter(!(is.na(patent_id)))%>%
+  merge(x=.,y=uspc_tbl,by="patent_id")%>%
+  select(organization, mainclass_id)%>%
+  # there are also apparently patents that have no registered main class
+  filter(!(is.na(mainclass_id)))->tempStorage
+##now we have the main class ID of the patents of the top10 companies
+tempStorage%>%
+  select(mainclass_id)%>%
+  group_by(mainclass_id)%>%
+  count()%>%
+  ungroup()%>%
+  arrange(desc(n))%>%
+  head(n=5)
+```
+Out of curiosity, this classes correspond to:
+
+1. Active solid-state devices (e.g., transistors, solid-state diodes)
+2. Semiconductor device manufacturing: process
+3. Static information storage and retrieval
+4. Multiplex communications
+5. Facsimile and static presentation processing
+
+Not sure what the last one is, I would guess image processing considering what companies are in the top 10.
 
 When you knit this R Markdown document, you will see that the histogram is printed to the page, along with the R code. This document can be set up to hide the R code in the webpage, just delete the comment (hashtag) from the cold folding option in the yaml header up top. For purposes of letting yourself see the code, and me see the code, best to keep it the way that it is. You'll learn that all of these things and more can be customized in each R code block.
