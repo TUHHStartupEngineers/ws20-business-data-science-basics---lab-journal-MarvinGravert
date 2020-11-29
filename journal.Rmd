@@ -20,8 +20,8 @@ knitr::opts_chunk$set(message=FALSE,warning=FALSE, cache=TRUE)
 
 This is an `.Rmd` file. It is plain text with special features. Any time you write just like this, it will be compiled to normal text in the website. If you put a \# in front of your text, it will create a top level-header.
 
-# My first post
-Basically the first challenge can be solved by copying the busines case example. Not much more involved. For ease of use the data has been copied into the folder challenge_1 in the repo.
+# Intro into tidyverse Challenge
+Basically the first challenge can be solved by copying the business case example. Not much more involved. For ease of use the data has been copied into the folder challenge_1 in the repo.
 ## First the data is "wrangeld"
 ```{r}
 library(tidyverse)
@@ -105,23 +105,81 @@ sales_by_state_and_year_tbl %>%
       fill = "State" # Changes the legend name
     )
 ```
-Last compiled: `r Sys.Date()`
 
-Notice that whatever you define as a top level header, automatically gets put into the table of contents bar on the left. 
+# Data aquisition Challenge
 
-## Second level header
+This challenge is seperated into two individual tasks, API-querying and webscraping.
 
-You can add more headers by adding more hashtags. These won't be put into the table of contents
+## API
 
-### third level header
+The first part of the challenge requried to query an API. Initially I wanted to query spotify but unfortunately the `spotifyr` library hasn't been released yet for my version of R. Twitter API required answers to too many questions and the reddit API was a bit slow, so eventually I settled to just querying the weather in Hamburg at the TUHH. This was done using the [openweathermap](https://home.openweathermap.org/ )
+The GPS coordinate of the TUHH are roughly lat=53.461 lon=9.96922643.
+Besides the current temperature the API also returns a "feels like" temperature, which I found a rather interesting bit of data.
 
-Here's an even lower level header
+```{r}
+library(tidyverse)
+library(httr)
+library(glue)
+library(jsonlite)
+###Calling API
+base_url="api.openweathermap.org/data/2.5/weather"
+endpoint=glue("{base_url}?lat=53.461&lon=9.96922643&appid={Sys.getenv('WEATHER_API')}")
+GET(endpoint)%>%
+  .$content%>%
+  rawToChar()%>%
+  fromJSON()->weather_data
+# Kelvin to Celsius
+K_TO_C=function(temperature){
+  temperature-273.15 
+}
+# current temp
+weather_data$main$temp->t
+cat("Current Temperature: ",K_TO_C(t),"C")
+# though the temperature feels like
+weather_data$main$feels_like->t
+cat("Though it feels like: ", K_TO_C(t),"C")
+```
 
-# My second post (note the order)
+## Web scraping
 
-Last compiled: `r Sys.Date()`
+For this rosebikes is scraped. I decided to only scrape on category as its simpler and no real insight is gained by scraping all categories. As the resulting tibble only has 9 entries the `head` function is not required. 
+```{r}
+library(stringr)
+library(rvest)
+base_url="https://www.rosebikes.de/"
+base_url%>% 
+  read_html()%>%
+  html_nodes(".main-navigation-category-with-tiles__link")%>%
+  html_attr("href")%>%
+  str_remove("\\/")%>%
+  enframe(name="position", value="link")%>%
+  mutate(url=glue("{base_url}{.$link}"))->
+  bike_category_url_tbl
 
-I'm writing this tutorial going from the top down. And, this is how it will be printed. So, notice the second post is second in the list. If you want your most recent post to be at the top, then make a new post starting at the top. If you want the oldest first, do, then keep adding to the bottom
+test=bike_category_url_tbl$url[1]
+html_bike_category=read_html(test)
+html_bike_category%>%
+  html_nodes(".catalog-category-bikes__title-text")%>%
+  html_text()%>%
+  str_remove_all("\\n")%>%
+  enframe(name="position",value="name")->
+  bike_name_single_category
+
+html_bike_category%>%
+  html_nodes(".catalog-category-bikes__price-title")%>%
+  html_text()%>%
+  str_remove_all("\\n")%>%
+  str_remove_all("ab")%>%
+  str_remove_all("€")%>%
+  str_remove_all("\\s")%>%
+  str_remove("\\.")%>%
+  str_replace("\\,","\\.")%>%
+  as.numeric(.)%>%
+  enframe(name="position", value="price")->
+  bike_price_single_category
+left_join(bike_name_single_category,bike_price_single_category)
+
+```
 
 # Adding R stuff
 
