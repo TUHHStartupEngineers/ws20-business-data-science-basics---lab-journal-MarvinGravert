@@ -338,7 +338,7 @@ tempStorage%>%
   arrange(desc(n))%>%
   head(n=5)
 ```
-Out of curiosity, this classes correspond to:
+Out of curiosity, these classes correspond to:
 
 1. Active solid-state devices (e.g., transistors, solid-state diodes)
 2. Semiconductor device manufacturing: process
@@ -348,4 +348,119 @@ Out of curiosity, this classes correspond to:
 
 Not sure what the last one is, I would guess image processing considering what companies are in the top 10.
 
-When you knit this R Markdown document, you will see that the histogram is printed to the page, along with the R code. This document can be set up to hide the R code in the webpage, just delete the comment (hashtag) from the cold folding option in the yaml header up top. For purposes of letting yourself see the code, and me see the code, best to keep it the way that it is. You'll learn that all of these things and more can be customized in each R code block.
+# Data Visualization
+The task where pretty straight forward albeit annoying as many plot parameters required googling and were not intuitive. 
+
+## Plot cumultative Covid cases
+
+```{r plot 3, fig.width=10, fig.height=7}
+library(tidyverse)
+covid_data_tbl <- read_csv("https://opendata.ecdc.europa.eu/covid19/casedistribution/csv")
+# We need to cumultative data
+# We also only need the date
+covid_data_tbl%>%
+  select(dateRep,cases,countriesAndTerritories)%>%
+  filter(countriesAndTerritories %in% c("Germany","Spain", 
+                                        "France","United_Kingdom",
+                                        "United_States_of_America"))%>%
+  mutate(dateRep=as.Date(dateRep, "%d/%m/%Y"))%>%
+  rename("date"="dateRep")%>%
+  arrange(date)%>%
+  group_by(countriesAndTerritories)%>%
+  mutate(cum=cumsum(cases))%>%
+  arrange(desc(date))->
+  cases_cum
+
+cases_cum %>%
+  rename("Countries"="countriesAndTerritories")%>%
+  
+  ggplot(aes(date, cum,color=Countries)) +
+  geom_line(size = 0.8)+
+  scale_x_date(date_breaks = "1 month", date_minor_breaks = "1 month",
+               date_labels = "%B")+
+  scale_y_continuous(labels = scales::label_number(scale=1e-6,accuracy=1,suffix="M"))+
+  labs(
+    title = "Covid confirmed cases  worldwide",
+    x = "Year 2020",
+    y = "Cumulative Cases",
+    subtitle =  str_glue(" Your ad could be here")
+  )+
+  ## Themes
+  # Axis labeling
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  # Legend modifications
+  theme(legend.position = "bottom",
+        legend.background = element_rect(fill = "#3fc6e8"),
+        legend.key = element_rect(fill="#3fc6e8")
+  )+## Around the plot
+  theme(plot.background = element_rect(fill = '#a571d9', colour = 'grey'))+
+  # Plot itself
+  theme(panel.background = element_rect(fill="black"),panel.grid = element_line())
+
+```
+
+Not gonna claim this is the most eye pleasing graph)
+
+## Plot Mortality Rate Distribution on World Map
+
+```{r plot 4 , fig.width=10, fig.height=7}
+## Data wrangling
+# Get Mortality rate
+covid_data_tbl%>%
+  select(deaths,popData2019,countriesAndTerritories)%>%
+  group_by(countriesAndTerritories,popData2019)%>%
+  summarise(total_death=sum(deaths))%>%
+  mutate(mortality_rate=total_death/popData2019)%>%
+  ungroup()%>%
+  select(countriesAndTerritories,mortality_rate)->
+  country_mort_rate_tbl
+
+# Get World data
+world <- map_data("world")
+world%>%
+  .[!duplicated(.$region),]->world_no_dups
+  # averaging the long and lat may also work but in theory it is possible that
+  # the center is in a different country e.g. one country wrapping another
+  # hence is it probably better to simply take the coordinate entry for every
+  # country
+  # summarise(long=mean(long),lat=mean(lat))
+
+# Align data sets
+country_mort_rate_tbl%>% 
+  mutate(across(countriesAndTerritories, str_replace_all, "_", " ")) %>%
+  mutate(countriesAndTerritories = case_when(
+    
+    countriesAndTerritories == "United Kingdom" ~ "UK",
+    countriesAndTerritories == "United States of America" ~ "USA",
+    countriesAndTerritories == "Czechia" ~ "Czech Republic",
+    TRUE ~ countriesAndTerritories
+  ))%>%
+  merge(x=.,y=world_no_dups,all.y=TRUE,by.x="countriesAndTerritories",by.y="region")%>%
+  select(countriesAndTerritories,mortality_rate,long,lat)->
+  mortality_rate_by_gps_tbl
+# Visualization
+mortality_rate_by_gps_tbl%>% 
+  ggplot(aes(map_id=countriesAndTerritories)) +
+  geom_map(aes(fill=mortality_rate),map=world) +
+  expand_limits(x = mortality_rate_by_gps_tbl$long, 
+                y = mortality_rate_by_gps_tbl$lat)+
+  labs(
+    title = "Confirmed COVID-19 deaths relative to the size of the population",
+    x = "",
+    y = "",
+    subtitle =  str_glue(" Your ad could be here"),
+    fill="Mortality Rate"
+  )+
+  scale_fill_gradient(low = "#ff8f8f", high = "#330000",na.value = "grey",
+                      labels = scales::label_number(scale=100,suffix="%"),
+                      breaks=c(0.0,0.0003,0.0006,0.0009,0.0012)) +
+  ## legend
+  theme(legend.background = element_rect(fill = "#393d5e"),
+      legend.key = element_rect(fill="#393d5e")
+      )+##Aroudn the plot
+  theme(plot.background = element_rect(fill = '#393d5e', colour = 'grey'))+
+  # Plot itself
+  theme(panel.background = element_rect(fill="#393d5e"),panel.grid = element_line())
+
+
+```
