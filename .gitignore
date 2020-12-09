@@ -36,3 +36,7 @@ vignettes/*.pdf
 *.knit.md
 
 # R Environment Variables
+.Renviron
+
+# ignore file storoage
+**/storage_challenge_4/
